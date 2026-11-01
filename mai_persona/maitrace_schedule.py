@@ -1,4 +1,8 @@
-"""MaiTrace-compatible autonomous-planning API response normalization."""
+"""Schedule provider API response normalization.
+
+Supports the `maibot.schedule` protocol (v1) envelope used by Mai Life and
+MaiTrace's legacy day-timeline shape.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +23,8 @@ def normalize_snapshot(response: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("自主规划插件日程快照格式无效")
 
-    current = data.get("activity")
+    # `activity` 是 MaiTrace 的旧字段；`maibot.schedule` 协议用 `current`。
+    current = data.get("activity", data.get("current"))
     if current is not None and not isinstance(current, dict):
         current = {"name": str(current)}
     if not data.get("has_activity", current is not None):
@@ -49,14 +54,17 @@ def normalize_snapshot(response: Any) -> dict[str, Any]:
 
 
 def normalize_schedule(response: Any) -> list[dict[str, Any]]:
-    """Normalize MaiTrace's day timeline API response."""
+    """Normalize a day-timeline response (MaiTrace legacy or maibot.schedule v1)."""
 
     if isinstance(response, dict):
         if response.get("success") is False or response.get("error"):
             raise ValueError(str(response.get("message") or response.get("error")))
         response = response.get("activities", response.get("schedule", response.get("data")))
+        if isinstance(response, dict):
+            # `maibot.schedule` 协议把活动列表包在 data.activities 里。
+            response = response.get("activities", response.get("schedule"))
     if not isinstance(response, list):
-        raise ValueError("MaiTrace 未返回有效的日程列表")
+        raise ValueError("日程提供方未返回有效的日程列表")
     return [
         item
         for item in response
@@ -82,6 +90,11 @@ def format_current_activity(activity: dict[str, Any] | None) -> str:
     if not name:
         return ""
     window = re.sub(r"\s+", " ", str(activity.get("time_window") or "")).strip()
+    if not window:
+        # maibot.schedule 协议给的是 start_at/end_at，没有 time_window。
+        start = _format_time(activity.get("start") or activity.get("start_at"))
+        end = _format_time(activity.get("end") or activity.get("end_at"))
+        window = f"{start}-{end}" if start and end else start or end
     description = re.sub(r"\s+", " ", str(activity.get("description") or "")).strip()
     suffix = f"（{window}）" if window else ""
     if description and description != name:

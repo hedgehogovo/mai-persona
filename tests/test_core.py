@@ -740,6 +740,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(example["exposure"]["daily_limit"], 2)
         self.assertEqual(loaded.batch.life_generate_at, "08:00")
         self.assertFalse(loaded.batch.use_maitrace_schedule)
+        self.assertEqual(loaded.batch.schedule_provider, "Rabbit-Jia-Er.MaiTrace")
         self.assertIn(
             "/config.toml",
             (PLUGIN_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines(),
@@ -822,7 +823,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(schema["sections"]["plugin"]["fields"]["enable_proactive_messages"]["order"], 1)
         self.assertEqual(
             schema["sections"]["batch"]["fields"]["use_maitrace_schedule"]["label"],
-            "使用 MaiTrace 日程",
+            "使用外部日程",
         )
 
     def test_enabled_plugin_waits_for_persona_configuration_without_failing_load(self) -> None:
@@ -2030,6 +2031,8 @@ class PluginContractTests(unittest.TestCase):
 
             async def call(self, api_name: str, **kwargs):
                 self.calls.append((api_name, kwargs))
+                if api_name.endswith(".get_schedule_provider_info"):
+                    return {"success": False, "error": "该提供方未实现 maibot.schedule"}
                 if api_name.endswith(".get_schedule"):
                     return [
                         {
@@ -2058,13 +2061,17 @@ class PluginContractTests(unittest.TestCase):
             plugin._set_context(types.SimpleNamespace(api=api, logger=Mock(spec=logging.Logger)))
             now = datetime(2026, 10, 31, 10, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
             asyncio.run(plugin._refresh_maitrace_schedule(now))
-            self.assertEqual(len(api.calls), 2)
+            self.assertEqual(len(api.calls), 3)
             self.assertEqual(
                 api.calls[0],
-                ("Rabbit-Jia-Er.MaiTrace.get_current_activity", {"version": "1", "chat_id": "global"}),
+                ("Rabbit-Jia-Er.MaiTrace.get_schedule_provider_info", {"version": "1"}),
             )
             self.assertEqual(
                 api.calls[1],
+                ("Rabbit-Jia-Er.MaiTrace.get_current_activity", {"version": "1", "chat_id": "global"}),
+            )
+            self.assertEqual(
+                api.calls[2],
                 ("Rabbit-Jia-Er.MaiTrace.get_schedule", {"version": "1", "day": "2026-10-31"}),
             )
             self.assertEqual(plugin._activity_snapshot(now)[0], "阅读（10:00-11:00）")
@@ -2102,6 +2109,103 @@ class PluginContractTests(unittest.TestCase):
             self.assertEqual(len(plugin._store.saved[2]), 1)
         finally:
             sys.modules.pop(module_name, None)
+
+    def test_schedule_provider_protocol_is_used_when_advertised(self) -> None:
+        """实现 maibot.schedule v1 的提供方按协议读取，不再走 MaiTrace 旧接口。"""
+
+        module_name = "mai_persona_schedule_protocol_test"
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            PLUGIN_ROOT / "plugin.py",
+            submodule_search_locations=[str(PLUGIN_ROOT)],
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+
+        class FakeAPI:
+            def __init__(self) -> None:
+                self.calls = []
+
+            async def call(self, api_name: str, **kwargs):
+                self.calls.append((api_name, kwargs))
+                if api_name.endswith(".get_schedule_provider_info"):
+                    return {
+                        "success": True,
+                        "error": None,
+                        "data": {"protocol": "maibot.schedule", "protocol_version": 1},
+                    }
+                if api_name.endswith(".get_schedule_snapshot"):
+                    return {
+                        "success": True,
+                        "error": None,
+                        "data": {
+                            "schedule_available": True,
+                            "current": {
+                                "name": "写作",
+                                "start_at": "2026-10-31T10:00:00+08:00",
+                                "end_at": "2026-10-31T11:00:00+08:00",
+                            },
+                            "next_activities": [],
+                        },
+                    }
+                if api_name.endswith(".get_schedule_timeline"):
+                    return {
+                        "success": True,
+                        "error": None,
+                        "data": {
+                            "activities": [
+                                {
+                                    "name": "散步",
+                                    "start_at": "2026-10-31T13:00:00+08:00",
+                                    "end_at": "2026-10-31T14:00:00+08:00",
+                                }
+                            ],
+                            "missing_days": [],
+                        },
+                    }
+                raise AssertionError(f"未预期的插件 API 调用：{api_name}")
+
+        try:
+            spec.loader.exec_module(module)
+            plugin = module.create_plugin()
+            plugin.set_plugin_config(
+                {
+                    "plugin": {"enabled": True, "config_version": "1.0.0"},
+                    "batch": {
+                        "use_maitrace_schedule": True,
+                        "schedule_provider": "maibot-community.mai-life",
+                    },
+                }
+            )
+            api = FakeAPI()
+            plugin._set_context(types.SimpleNamespace(api=api, logger=Mock(spec=logging.Logger)))
+            now = datetime(2026, 10, 31, 10, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+            asyncio.run(plugin._refresh_maitrace_schedule(now))
+            self.assertEqual(
+                [call[0] for call in api.calls],
+                [
+                    "maibot-community.mai-life.get_schedule_provider_info",
+                    "maibot-community.mai-life.get_schedule_snapshot",
+                    "maibot-community.mai-life.get_schedule_timeline",
+                ],
+            )
+            self.assertEqual(
+                api.calls[2][1],
+                {
+                    "start_at": "2026-10-31T00:00:00+08:00",
+                    "end_at": "2026-10-31T23:59:59+08:00",
+                },
+            )
+            activity, _, status, source = plugin._activity_snapshot(now)
+            self.assertEqual(activity, "写作（10:00-11:00）")
+            self.assertEqual(status, "已连接")
+            self.assertEqual(source, "mai-life")
+            self.assertIn("13:00-14:00 散步", plugin._maitrace_schedule_context(now))
+        finally:
+            sys.modules.pop(module_name, None)
+
 
     def test_disabled_proactive_schedule_clears_pending_plan(self) -> None:
         module_name = "mai_persona_schedule_test"

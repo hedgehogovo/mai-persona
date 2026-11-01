@@ -444,10 +444,19 @@ class BatchConfig(PluginConfigBase):
         group="日程与日记",
     )
     use_maitrace_schedule: bool = _ui_field(
-        "使用 MaiTrace 日程",
-        "开启后只读接入 MaiTrace 日程 API，并将当前活动和后续活动提供给 Planner、Replyer。Mai Persona 不再生成自己的日程，但仍会生成日常小事件。",
+        "使用外部日程",
+        "开启后只读接入外部日程插件的 API，并将当前活动和后续活动提供给 Planner、Replyer。Mai Persona 不再生成自己的日程，但仍会生成日常小事件。",
         default=False,
-        hint="需要启用 MaiTrace 的日程功能。接口暂不可用时会明确显示不可用，不会用本地旧日程替代；不会向 MaiTrace 写入数据。",
+        hint="提供方见“日程提供方”。接口暂不可用时会明确显示不可用，不会用本地旧日程替代；不会向提供方写入数据。",
+        group="日程与日记",
+    )
+    schedule_provider: str = _ui_field(
+        "日程提供方",
+        "外部日程插件的插件 ID。实现 maibot.schedule v1 协议（get_schedule_provider_info / get_schedule_snapshot / get_schedule_timeline）的提供方按协议读取；未实现的回落到 MaiTrace 的 get_current_activity / get_schedule。",
+        default="Rabbit-Jia-Er.MaiTrace",
+        placeholder="Rabbit-Jia-Er.MaiTrace",
+        example="maibot-community.mai-life",
+        hint="留空等同默认值。切换提供方后会在下次同步时重新探测协议能力。",
         group="日程与日记",
     )
     diary_generate_at: str = _ui_field(

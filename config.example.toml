@@ -59,8 +59,10 @@ decide_user_blacklist = []
 [batch]
 todo_extract_hours = 4.0
 life_generate_at = "08:00"
-# 开启后只读使用 MaiTrace 日程；日常小事件仍由 Mai Persona 维护
+# 开启后只读使用外部日程；日常小事件仍由 Mai Persona 维护
 use_maitrace_schedule = false
+# 日程提供方插件 ID：实现 maibot.schedule v1 的按协议读取，否则回落 MaiTrace 旧接口
+schedule_provider = "Rabbit-Jia-Er.MaiTrace"
 diary_generate_at = "23:30"
 
 [exposure]

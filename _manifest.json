@@ -1,6 +1,6 @@
 {
   "manifest_version": 2,
-  "version": "0.3.3",
+  "version": "0.3.4",
   "name": "Mai Persona 内在引擎",
   "description": "维护 MaiBot 角色的情绪、生活节奏、事件线与关系状态，增强长期互动的连续拟人表现；不替代 MaiBot 自有人格、行为准则或回复风格。",
   "author": {
