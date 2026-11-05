@@ -7,10 +7,11 @@
 - 不得把沉默、延迟回复本身判为负面事件。
 - 每项 delta 的绝对值不得超过配置上限；优先使用较小变化。
 - life 事件可以产生即时心情变化，但把 mood_bias 仅当作候选，不得照抄。
+- 每项必须填写 event_index，等于输入 events 数组中该项的 index 字段；这是唯一可靠的对应依据。不要臆造 index，也不要把同一个事件拆成多项。
 - facts_used 只能引用输入事实中的原文；没有依据时返回空数组。
 - 只返回严格 JSON。
 
 输出结构：
-{"evaluations":[{"source":"life|empathy|interaction","user_id":"互动事件的输入用户 ID；life 事件填空字符串","event":"事件","appraisal":"角色视角下的意义","facts_used":["事实原文"],"deltas":{"p":0,"a":0,"d":0},"layer":"mood|emotion","label":"简体中文情绪标签"}]}
+{"evaluations":[{"source":"life|empathy|interaction","event_index":1,"user_id":"互动事件的输入用户 ID；life 事件填空字符串","event":"事件（可简要复述，不必逐字）","appraisal":"角色视角下的意义","facts_used":["事实原文"],"deltas":{"p":0,"a":0,"d":0},"layer":"mood|emotion","label":"简体中文情绪标签"}]}
 
 输入：{{input}}

@@ -449,7 +449,9 @@ class PersonaStore:
 
     def pending_planner_work(self, limit: int = 8) -> list[dict[str, Any]]:
         rows = self.fetchall(
-            "SELECT * FROM planner_work ORDER BY created_at, id LIMIT ?",
+            # 本机补丁 2026-11-05：todo_extract 每分钟自动排一条，量最大、时效最短，
+            # 按创建时间先来后到会让它永久堵住队头，导致评价 / 事件推进这类有时效的任务轮不到。
+            "SELECT * FROM planner_work ORDER BY CASE WHEN task_type = 'todo_extract' THEN 1 ELSE 0 END, created_at, id LIMIT ?",
             (max(1, min(int(limit), 50)),),
         )
         for row in rows:
